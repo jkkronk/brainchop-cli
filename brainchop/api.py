@@ -245,6 +245,18 @@ class TTAModel:
         self._flip_axis = flip_axis
         # Pre-create flip matrix for all dimensions (256)
         self._flip_matrix = _create_flip_matrix(256)
+        # Other axis lengths (cropped volumes) get theirs on first use. 256 stays out of
+        # this dict: export_model() saves every tensor attribute, and a second reference
+        # would add a duplicate weight to the export.
+        self._flip_matrices: dict[int, Tensor] = {}
+
+    def _flip_matrix_for(self, size: int) -> Tensor:
+        """Flip matrix for an axis of this length, built once per length."""
+        if size == 256:
+            return self._flip_matrix
+        if size not in self._flip_matrices:
+            self._flip_matrices[size] = _create_flip_matrix(size)
+        return self._flip_matrices[size]
 
     def _flip_sagittal(self, x: Tensor) -> Tensor:
         """Flip tensor along depth/sagittal axis (D, axis 2)."""
@@ -252,7 +264,7 @@ class TTAModel:
         b, c, d, h, w = x.shape
         x_reshaped = x.reshape(b * c, d, h * w)  # (B*C, D, H*W)
         x_t = x_reshaped.permute(0, 2, 1)  # (B*C, H*W, D)
-        x_flipped_t = x_t @ self._flip_matrix  # (B*C, H*W, D)
+        x_flipped_t = x_t @ self._flip_matrix_for(d)  # (B*C, H*W, D)
         x_flipped = x_flipped_t.permute(0, 2, 1)  # (B*C, D, H*W)
         return x_flipped.reshape(b, c, d, h, w)
 
@@ -262,7 +274,7 @@ class TTAModel:
         b, c, d, h, w = x.shape
         x_reshaped = x.reshape(b * c * d, h, w)  # (B*C*D, H, W)
         x_t = x_reshaped.permute(0, 2, 1)  # (B*C*D, W, H)
-        x_flipped_t = x_t @ self._flip_matrix  # (B*C*D, W, H)
+        x_flipped_t = x_t @ self._flip_matrix_for(h)  # (B*C*D, W, H)
         x_flipped = x_flipped_t.permute(0, 2, 1)  # (B*C*D, H, W)
         return x_flipped.reshape(b, c, d, h, w)
 
@@ -271,7 +283,7 @@ class TTAModel:
         # x: (B, C, D, H, W) - flip along W
         b, c, d, h, w = x.shape
         x_reshaped = x.reshape(b * c * d * h, w)  # (B*C*D*H, W)
-        x_flipped = x_reshaped @ self._flip_matrix  # (B*C*D*H, W)
+        x_flipped = x_reshaped @ self._flip_matrix_for(w)  # (B*C*D*H, W)
         return x_flipped.reshape(b, c, d, h, w)
 
     def _flip(self, x: Tensor) -> Tensor:
