@@ -12,7 +12,6 @@ PUBLIC_DIR = "../niivue-tinygrad/public"
 MODELS = [
     "tissue_fast",
     "robust_tissue",
-    "big_robust_tissue",
     "subcortical",
     "DKatlas",
     "mindgrab",

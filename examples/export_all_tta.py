@@ -9,7 +9,6 @@ OUTPUT_DIR = "../niivue-tinygrad"
 # (sagittal TTA already done for all, tissue_fast coronal/axial already done)
 MODELS = [
     "robust_tissue",
-    "big_robust_tissue",
     "subcortical",
     "DKatlas",
     "mindgrab",
