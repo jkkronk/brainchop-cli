@@ -168,8 +168,10 @@ def chunked_conv(x: Tensor, conv_layer: nn.Conv2d, chunk_limit: int | None = Non
 def qnormalize(img: Tensor, qmin=0.02, qmax=0.98, eps=1e-3) -> Tensor:
     """Unit interval preprocessing with clipping and safe division for bf16"""
     img = img.numpy()
-    qlow = np.quantile(img, qmin) #type:ignore . numpy api bad
-    qhigh = np.quantile(img, qmax) #type:ignore
+    # One intensity window per volume of a (B, C, D, H, W) batch: batching must not change results.
+    axis = (1, 2, 3, 4) if img.ndim == 5 else None
+    qlow = np.quantile(img, qmin, axis=axis, keepdims=True) #type:ignore . numpy api bad
+    qhigh = np.quantile(img, qmax, axis=axis, keepdims=True) #type:ignore
     img = (img - qlow) / (qhigh - qlow + eps)
     img = np.clip(img, 0, 1) #type:ignore
     return Tensor(img)
