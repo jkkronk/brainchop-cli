@@ -1,5 +1,6 @@
 """Downloads into the ~/.cache/brainchop model cache, with requests.get faked out."""
 
+import errno
 import json
 from pathlib import Path
 
@@ -10,6 +11,7 @@ URL = "https://example.invalid/model.pth"
 PTH = bytes(range(256)) * 100
 BIN = b"tfjs weights"
 CONFIG = b'{"layers": []}'
+LISTING = {"fresh": {"folder": "fresh", "description": "listing served by the fake server"}}
 
 
 class FakeResponse:
@@ -27,6 +29,9 @@ class FakeResponse:
             yield self.body[i : i + chunk_size]
         if self.broken:
             raise requests.exceptions.ChunkedEncodingError("Connection broken: IncompleteRead")
+
+    def json(self):
+        return json.loads(self.body)
 
 
 class FakeServer:
@@ -143,3 +148,46 @@ def test_interrupted_sae_download_is_retried_next_run(utils, server, home):
 
     server.files["model.pth"] = FakeResponse(body=PTH)
     assert utils.find_sae_files("robust_tissue").read_bytes() == PTH
+
+
+@pytest.mark.parametrize(
+    "content",
+    [b'{\n  "tissue_fast": {\n    "folder": "model5_gw_ae",\n', b"", b"\xff\xfe\x00"],
+    ids=["truncated", "empty", "not-utf8"],
+)
+def test_corrupt_listing_is_downloaded_again(utils, server, home, content):
+    listing = home / ".cache" / "brainchop" / "models.json"
+    listing.write_bytes(content)
+    server.files["models.json"] = FakeResponse(body=json.dumps(LISTING).encode())
+    assert utils.load_models() == LISTING
+    assert json.loads(listing.read_text()) == LISTING
+
+
+def test_valid_listing_is_read_without_a_request(utils, server, home):
+    listing = home / ".cache" / "brainchop" / "models.json"
+    assert utils.load_models() == json.loads(listing.read_text())
+    assert server.requested == []
+
+
+def test_failed_refresh_keeps_listing(utils, server, home):
+    listing = home / ".cache" / "brainchop" / "models.json"
+    before = listing.read_bytes()
+    server.files["models.json"] = FakeResponse(503)
+    with pytest.raises(requests.HTTPError):
+        utils.update_models()
+    assert listing.read_bytes() == before
+
+
+def test_interrupted_listing_write_keeps_listing(utils, server, home, monkeypatch):
+    listing = home / ".cache" / "brainchop" / "models.json"
+    before = listing.read_bytes()
+    server.files["models.json"] = FakeResponse(body=json.dumps(LISTING).encode())
+
+    def dump_until_disk_full(obj, f, **kwargs):
+        f.write(json.dumps(obj, **kwargs)[:10])
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(utils.json, "dump", dump_until_disk_full)
+    with pytest.raises(OSError):
+        utils.update_models()
+    assert listing.read_bytes() == before

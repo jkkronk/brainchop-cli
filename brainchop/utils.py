@@ -15,8 +15,11 @@ def download_model_listing():
     local_models_file = Path.home() / ".cache" / "brainchop" / "models.json"
     local_models_file.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(local_models_file, "w") as f:
+    # Write a temp file and rename it, so an interrupted write can't truncate the listing.
+    part_file = f"{local_models_file}.part"
+    with open(part_file, "w") as f:
         json.dump(models, f, indent=2)
+    os.replace(part_file, local_models_file)
 
     print(f"Downloaded models.json to {local_models_file}")
     return models
@@ -26,10 +29,12 @@ def load_models():
     """Load models.json from cache or download."""
     local_models_file = Path.home() / ".cache" / "brainchop" / "models.json"
     if local_models_file.exists():
-        with open(local_models_file, "r") as f:
-            return json.load(f)
-    else:
-        return download_model_listing()
+        try:
+            with open(local_models_file, "r") as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            pass  # unreadable or not valid JSON: download it again below
+    return download_model_listing()
 
 
 def update_models() -> None:
