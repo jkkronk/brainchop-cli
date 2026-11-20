@@ -5,6 +5,7 @@ brainchop CLI - Command-line interface for brain segmentation.
 import argparse
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 from brainchop.api import (
@@ -41,8 +42,9 @@ Examples:
     parser.add_argument("input", nargs="*", help="Input NIfTI file(s)")
 
     # Common flags (short + long)
-    parser.add_argument("-o", "--output", default="output.nii.gz",
-                        help="Output path (default: output.nii.gz)")
+    parser.add_argument("-o", "--output", default=None,
+                        help="Output path for a single input "
+                             "(default: <input>_<model>_<n>.nii.gz in the current directory)")
     parser.add_argument("-m", "--model", default=default_model,
                         help=f"Model name (default: {default_model})")
     parser.add_argument("-l", "--list", action="store_true",
@@ -144,6 +146,10 @@ def main():
         if cached:
             beam = cached
 
+    if args.output is not None and len(args.input) > 1:
+        print(f"brainchop :: -o {args.output} is ignored with several inputs; "
+              "outputs are named <input>_<model>_<n>.nii.gz", file=sys.stderr)
+
     # Process each input
     for i, input_path in enumerate(args.input):
         abs_path = os.path.abspath(input_path)
@@ -157,7 +163,7 @@ def main():
         assert isinstance(result, Volume)
 
         # Output path
-        if len(args.input) == 1 and args.output != "output.nii.gz":
+        if len(args.input) == 1 and args.output is not None:
             output_path = args.output
         else:
             base = Path(input_path).stem.replace(".nii", "")
