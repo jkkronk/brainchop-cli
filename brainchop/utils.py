@@ -54,9 +54,17 @@ def download(url, local_path) -> None:
     os.makedirs(os.path.dirname(local_path), exist_ok=True)
     response = requests.get(url, stream=True)
     response.raise_for_status()
-    with open(local_path, "wb") as f:
-        for chunk in response.iter_content(chunk_size=8192):
-            f.write(chunk)
+    # Callers treat an existing file as a complete download, so stream into a temp
+    # file and move it into place only once the whole body has arrived.
+    part_path = Path(f"{local_path}.part")
+    try:
+        with open(part_path, "wb") as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                f.write(chunk)
+        os.replace(part_path, local_path)
+    except BaseException:
+        part_path.unlink(missing_ok=True)
+        raise
 
 
 def unwrap_path(path) -> str:
@@ -87,7 +95,11 @@ def find_pth_files(model_name) -> Tuple[Path | Any, Path | Any]:
         try:
             download(f"{MESHNET_BASE_URL}{model_dir}/model.pth", pth_fn)
             return json_fn, pth_fn
-        except Exception:
+        except requests.HTTPError as e:
+            # Fall back only if model.pth doesn't exist: a cached model.bin is used on
+            # every later run, so a transient error must not leave one behind.
+            if e.response is None or e.response.status_code != 404:
+                raise
             download(f"{MESHNET_BASE_URL}{model_dir}/model.bin", bin_fn)
             return json_fn, bin_fn
 
