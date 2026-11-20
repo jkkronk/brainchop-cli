@@ -503,16 +503,16 @@ def bwlabel(header: bytes, vol_data: np.ndarray, neighbors=26):
         return vol_data, header
     # fire niimath, pipe in header+data, capture its stdout
     res = subprocess.run(
-        ["niimath", "-", "-bwlabel", str(neighbors), "-gz", "0", "-", "-odt", "char"],
+        ["niimath", "-", "-bwlabel", str(neighbors), "-gz", "0", "-", "-odt", "int"],
         input=header + vol_data.tobytes(),
         capture_output=True,
         check=True,
     )
     out = res.stdout
-    # split off the 352‑byte header
-    out_header, out_data = header_data_split(out)
-    # reinterpret and reshape into (Z,Y,X)
-    clusters = np.frombuffer(out_data, dtype=np.uint8).reshape(vol_data.shape)
+    # split off the 352‑byte header (it describes the int32 id map, not vol_data)
+    _, out_data = header_data_split(out)
+    # reinterpret and reshape into (Z,Y,X); int32 because uint8 ids saturate at 255
+    clusters = np.frombuffer(out_data, dtype=np.int32).reshape(vol_data.shape)
     cluster_label = largest_cluster(clusters)
     vol_data[clusters != cluster_label] = 0
-    return vol_data, out_header
+    return vol_data, header
