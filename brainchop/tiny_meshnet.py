@@ -385,6 +385,14 @@ def load_meshnet(
                 and state_dict[keys[-1]].shape == (out_channels,)):
             final_conv.bias = Tensor.zeros(out_channels, device=final_conv.weight.device)
         state_dict = convert_keys(state_dict, nn.state.get_state_dict(model))
+    else:
+        # strict=True below only requires the model's keys to be in the checkpoint;
+        # checkpoint tensors the model does not declare would be ignored.
+        declared = nn.state.get_state_dict(model)
+        undeclared = [k for k in state_dict if k not in declared]
+        if undeclared:
+            raise ValueError("Checkpoint has parameters the model config does not declare: "
+                             f'{undeclared} (is "bias": true or "affine": true missing?)')
     load_state_dict(model, state_dict, strict=True, verbose=False)
     # Initialize SequentialConvArgmax for memory-efficient argmax
     model.init_seq_conv_argmax()
