@@ -167,3 +167,16 @@ def test_single_input_mask_is_written_as_named(workdir, brain_path, monkeypatch,
     assert listing(workdir) == outputs
     for name in outputs:
         assert ((workdir / name).read_bytes()[:2] == GZIP_MAGIC) == name.endswith(".gz"), name
+
+
+def test_several_inputs_get_one_mask_each_on_their_own_grid(
+    workdir, brain_path, half_brain, monkeypatch, capsys
+):
+    run_cli(monkeypatch, brain_path, half_brain, "--skull-strip", "--mask")
+    masks = {brain_path: "brain_mindgrab_1_mask.nii.gz", half_brain: "half_mindgrab_2_mask.nii.gz"}
+    assert listing(workdir) == sorted(["brain_mindgrab_1.nii.gz", "half_mindgrab_2.nii.gz",
+                                       *masks.values()])
+    for source, mask in masks.items():
+        assert read_nifti(workdir / mask).shape == read_nifti(source).shape
+    notices = [line for line in capsys.readouterr().err.splitlines() if "--mask" in line]
+    assert len(notices) == 1

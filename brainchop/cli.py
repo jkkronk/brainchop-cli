@@ -149,6 +149,11 @@ def main():
     if args.output is not None and len(args.input) > 1:
         print(f"brainchop :: -o {args.output} is ignored with several inputs; "
               "outputs are named <input>_<model>_<n>.nii.gz", file=sys.stderr)
+    # Several inputs cannot share one --mask file, so each mask is named after its output
+    mask_ext = ".nii" if args.mask and args.mask.endswith(".nii") else ".nii.gz"
+    if args.mask and model_name == "mindgrab" and len(args.input) > 1:
+        print(f"brainchop :: --mask {args.mask} is ignored with several inputs; "
+              f"masks are named <input>_<model>_<n>_mask{mask_ext}", file=sys.stderr)
 
     # Process the inputs in consecutive groups of --batch-size
     batch_size = max(args.batch_size, 1)
@@ -185,6 +190,12 @@ def main():
                     model_label = model_name
                 output_path = f"{base}_{model_label}_{i+1}.nii.gz"
 
+            # Mask path
+            mask_path = args.mask
+            if args.mask and len(args.input) > 1:
+                stem = output_path.removesuffix(".gz").removesuffix(".nii")
+                mask_path = f"{stem}_mask{mask_ext}"
+
             # Export class probability maps if requested
             if args.export_classes and raw_output is not None:
                 export_classes(raw_output, vol.header, output_path)
@@ -192,7 +203,7 @@ def main():
 
             # Save
             if model_name == "mindgrab":
-                _save_mindgrab(result, abs_path, args, output_path)
+                _save_mindgrab(result, abs_path, args, output_path, mask_path)
             elif args.inverse_conform:
                 _save_inverse_conform(result, abs_path, output_path)
             else:
@@ -203,7 +214,8 @@ def main():
     print("brainchop :: Done!")
 
 
-def _save_mindgrab(result: Volume, source_path: str, args, output_path: str):
+def _save_mindgrab(result: Volume, source_path: str, args, output_path: str,
+                   mask_path: str | None = None):
     """Handle mindgrab output."""
     header = truncate_header_bytes(result.header)
     data = header + result.data.cast("uint8").numpy().tobytes()
@@ -211,10 +223,10 @@ def _save_mindgrab(result: Volume, source_path: str, args, output_path: str):
     if args.border > 0:
         data = grow_border(data, args.border)
 
-    if args.mask:
-        gz = "0" if args.mask.endswith(".nii") else "1"
+    if mask_path:
+        gz = "0" if mask_path.endswith(".nii") else "1"
         subprocess.run(
-            ["niimath", "-", "-reslice_nn", source_path, "-gz", gz, args.mask, "-odt", "char"],
+            ["niimath", "-", "-reslice_nn", source_path, "-gz", gz, mask_path, "-odt", "char"],
             input=data, check=True
         )
 
