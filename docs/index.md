@@ -45,8 +45,11 @@ See [Examples](examples.md) for more use cases and [API Reference](api.md) for d
 
 | Model | Description |
 |-------|-------------|
-| `subcortical` | Subcortical structures (default) |
-| `tissue_fast` | Fast tissue segmentation (GM/WM/CSF) |
-| `tissue_full` | Full tissue segmentation |
-| `mindgrab` | Skull stripping |
-| `dkatlas` | DK atlas parcellation |
+| `tissue_fast` | Fastest tissue segmentation: gray and white matter (default) |
+| `robust_tissue` | Robust tissue segmentation (spatial autoencoder) |
+| `subcortical` | Cortical tissue plus 15 subcortical regions; handles clinical scans |
+| `DKatlas` | Desikan-Killiany atlas parcellation, 104 labels |
+| `aparc50` | Cortical parcellation, 50 regions |
+| `mindgrab` | Skull stripping in any modality |
+
+Model names are case-sensitive. `brainchop --list` prints the current list.
