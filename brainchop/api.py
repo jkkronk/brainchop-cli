@@ -647,7 +647,7 @@ def export(
 
     # Check available system memory - block if free memory is below threshold
     require_free_gb = int(os.environ.get("REQUIRE_FREE_GB", 0))
-    if require_free_gb > 0:
+    if require_free_gb > 0 and not force:
         import subprocess
         result = subprocess.run(
             ["vm_stat"], capture_output=True, text=True
