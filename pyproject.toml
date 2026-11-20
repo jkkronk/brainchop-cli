@@ -18,7 +18,7 @@ classifiers = [
 dependencies = [
     "numpy",
     "tinygrad",
-    "niimath>=1.0.20250804",
+    "niimath>=1.0.20260720",
     "requests",
     "safetensors",
 ]
