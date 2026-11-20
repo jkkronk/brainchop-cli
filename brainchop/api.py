@@ -17,6 +17,8 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from tinygrad import Tensor
+# tinygrad reads the BEAM envvar only once, at import; later changes go through BEAM.value.
+from tinygrad.helpers import BEAM
 
 from brainchop.niimath import (
     conform,
@@ -404,14 +406,18 @@ def optimize(model: str, *, beam: int = 2, batch_size: int = 1) -> None:
     print(f"brainchop :: Optimizing '{model_name}' with BEAM={beam}, BS={batch_size}...")
 
     original_beam = os.environ.get("BEAM")
+    original_beam_value = BEAM.value
     try:
         os.environ["BEAM"] = str(beam)
+        if beam > 0:
+            BEAM.value = beam
         m = _load_model(model)
         dummy = Tensor(np.random.randn(batch_size, 1, 256, 256, 256).astype(np.float32))
         _ = m(dummy).realize()
         _save_optimization_cache(model_name, batch_size, beam)
         print("brainchop :: Optimization complete!")
     finally:
+        BEAM.value = original_beam_value
         if original_beam is not None:
             os.environ["BEAM"] = original_beam
         elif "BEAM" in os.environ:
@@ -499,9 +505,11 @@ def segment(
         beam = cached_beam if cached_beam else 0
 
     original_beam = os.environ.get("BEAM")
+    original_beam_value = BEAM.value
     try:
         if beam > 0:
             os.environ["BEAM"] = str(beam)
+            BEAM.value = beam
 
         m = _load_model(model, tta=tta)
         results: list[Volume] = []
@@ -545,6 +553,7 @@ def segment(
             return result, raw
         return result
     finally:
+        BEAM.value = original_beam_value
         if original_beam is not None:
             os.environ["BEAM"] = original_beam
         elif "BEAM" in os.environ:
@@ -637,9 +646,11 @@ def export(
             model_name = f"{model_name}_tta_{flip_axis}"
 
     original_beam = os.environ.get("BEAM")
+    original_beam_value = BEAM.value
     try:
         if beam > 0:
             os.environ["BEAM"] = str(beam)
+            BEAM.value = beam
 
         # Load model
         m = _load_model(model, tta=tta, flip_axis=flip_axis)
@@ -662,6 +673,7 @@ def export(
 
         return str(js_path), str(weights_path)
     finally:
+        BEAM.value = original_beam_value
         if original_beam is not None:
             os.environ["BEAM"] = original_beam
         elif "BEAM" in os.environ:
