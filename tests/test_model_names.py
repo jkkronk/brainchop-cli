@@ -55,3 +55,9 @@ def test_load_model_uses_builtin_despite_same_named_directory(cwd, monkeypatch):
     monkeypatch.setattr(utils, "find_pth_files", find_pth_files)
     with pytest.raises(BuiltIn):
         api._load_model("tissue_fast")
+
+
+def test_cache_name():
+    assert api._model_cache_name("tissue_fast") == "tissue_fast"
+    assert api._model_cache_name("/models/my_model") == "my_model"
+    assert api._model_cache_name("file:///models/my_model") == "my_model"

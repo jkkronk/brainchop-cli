@@ -36,6 +36,11 @@ from tinygrad import nn
 # BEAM Optimization Cache
 # =============================================================================
 
+def _model_cache_name(model: str) -> str:
+    """Name a model's optimization cache is kept under (the folder name for a path)."""
+    return Path(model).name if "/" in model else model
+
+
 def _get_cache_dir(model_name: str) -> Path:
     """Get cache directory for a model."""
     return Path.home() / ".cache" / "brainchop" / "models" / model_name
@@ -413,7 +418,7 @@ def optimize(model: str, *, beam: int = 2, batch_size: int = 1) -> None:
     """
     import numpy as np
 
-    model_name = Path(model).name if "/" in model else model
+    model_name = _model_cache_name(model)
 
     print(f"brainchop :: Optimizing '{model_name}' with BEAM={beam}, BS={batch_size}...")
 
@@ -510,7 +515,7 @@ def segment(
     volumes: list[Volume] = [volume] if single_input else volume  # type: ignore[assignment]
 
     # Determine BEAM value
-    model_name = Path(model).name if "/" in model else model
+    model_name = _model_cache_name(model)
     if beam == 0:
         # Use cached value if available
         cached_beam = _get_best_beam(model_name, shard_size)
@@ -650,7 +655,7 @@ def export(
     output_path.mkdir(parents=True, exist_ok=True)
 
     # Get model name for output files
-    model_name = Path(model).name if "/" in model else model
+    model_name = _model_cache_name(model)
     if tta:
         if flip_axis == "sagittal":
             model_name = f"{model_name}_tta"
