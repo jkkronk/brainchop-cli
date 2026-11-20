@@ -324,6 +324,25 @@ class TTAModel:
         return self._model.seq_conv_argmax.argmax_only(summed)
 
 
+def _custom_model_dir(model: str) -> Path | None:
+    """
+    Directory to load a custom model from, or None to look `model` up by name.
+
+    A registered model name always means the built-in model, even if a directory of
+    that name exists in the working directory; write it as a path (./name) to use it.
+    """
+    from brainchop.utils import AVAILABLE_MODELS
+
+    if model in AVAILABLE_MODELS:
+        return None
+    if model.startswith("file://"):
+        model = model.replace("file://", "")
+        if model.startswith("~"):
+            model = os.path.expanduser(model)
+    model_path = Path(model)
+    return model_path if model_path.is_dir() else None
+
+
 def _load_model(model: str, *, tta: bool = False, flip_axis: str = "sagittal"):
     """
     Load model by name or path.
@@ -334,17 +353,10 @@ def _load_model(model: str, *, tta: bool = False, flip_axis: str = "sagittal"):
         tta: If True, wrap model with test-time augmentation (flip ensemble)
         flip_axis: Which axis to flip for TTA ("sagittal", "coronal", "axial")
     """
-    from pathlib import Path
     from brainchop.utils import find_pth_files, find_sae_files, AVAILABLE_MODELS, unwrap_path
 
-    # Check if it's a path (absolute, relative, or file://)
-    if model.startswith("file://"):
-        model = model.replace("file://", "")
-        if model.startswith("~"):
-            model = os.path.expanduser(model)
-
-    model_path = Path(model)
-    if model_path.exists() and model_path.is_dir():
+    model_path = _custom_model_dir(model)
+    if model_path is not None:
         # Custom model directory
         config_fn = model_path / "model.json"
         if not config_fn.exists():
