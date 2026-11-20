@@ -338,6 +338,12 @@ class MeshNet:
                     layer.bias = layer.bias.half().realize()
         return self
 
+
+def fp16_enabled() -> bool:
+    """Whether the FP16 env var selects half precision: unset, "" and "0" mean no."""
+    return os.environ.get("FP16", "") not in ("", "0")
+
+
 def load_meshnet(
     config_fn: str,
     model_fn: str,
@@ -399,7 +405,7 @@ def load_meshnet(
     # Initialize SequentialConvArgmax for memory-efficient argmax
     model.init_seq_conv_argmax()
     # Convert to half precision if FP16 env var is set
-    if os.environ.get("FP16"):
+    if fp16_enabled():
         model = model.half()
     return model
 

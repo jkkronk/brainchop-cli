@@ -7,12 +7,10 @@ This module provides SAENet, an encoder-decoder architecture with:
 - SiLU activation
 """
 
-import os
-
 from tinygrad import Tensor, dtypes
 from tinygrad.nn.state import torch_load
 
-from brainchop.tiny_meshnet import qnormalize, SequentialConvArgmax
+from brainchop.tiny_meshnet import qnormalize, SequentialConvArgmax, fp16_enabled
 
 
 # Layer indices in the fused model (odd indices are SiLU activations, no params)
@@ -95,7 +93,7 @@ class SAENet:
         # brainchop/tiny_meshnet.py MeshNet.__call__ for the full rationale. Without
         # it, an "fp16" export keeps activations in f32 and runs no faster (often
         # slower) than fp32 on GPUs without 2:1 f16 throughput.
-        self.fp16 = bool(os.environ.get("FP16"))
+        self.fp16 = fp16_enabled()
 
         for idx in LAYER_INDICES:
             # Move weights from DISK to compute device via numpy roundtrip
