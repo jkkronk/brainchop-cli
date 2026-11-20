@@ -456,12 +456,16 @@ def niimath_pipe_process(cmd: list, full_input: bytes):
 
 
 def grow_border(full_input: bytes, border: int):
+    # -close dilates to distances < dx (-dilate does not grow at all in niimath 1.0.20250804).
+    # Squared distances between 1 mm voxels are integers, so dx**2 = border**2 + 0.5 sets
+    # exactly the voxels within `border` mm of the mask.
+    dx = (border * border + 0.5) ** 0.5
     cmd = [
         "niimath",
         "-",
         "-close",
         "1",
-        str(border),
+        str(dx),
         "0",
         "-gz",
         "0",

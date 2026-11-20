@@ -6,7 +6,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from brainchop.niimath import bwlabel, conform, truncate_header_bytes
+from brainchop.niimath import (
+    bwlabel,
+    conform,
+    grow_border,
+    header_data_split,
+    truncate_header_bytes,
+)
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "brain.nii.gz"
 
@@ -44,3 +50,29 @@ def test_bwlabel_keeps_only_the_largest_component(header, islands, blob_z, islan
     assert out.dtype == np.uint8
     np.testing.assert_array_equal(out, expected)
     assert out_header == truncate_header_bytes(header)
+
+
+def _within(mask, n):
+    """Voxels within Euclidean distance n of the mask (mask voxels at least n from the edge)."""
+    r2 = np.arange(-n, n + 1) ** 2
+    ball = r2[:, None, None] + r2[None, :, None] + r2[None, None, :] <= n * n
+    out = np.zeros(mask.shape, bool)
+    for z, y, x in np.argwhere(mask):
+        out[z - n : z + n + 1, y - n : y + n + 1, x - n : x + n + 1] |= ball
+    return out
+
+
+@pytest.mark.parametrize("border", [1, 2, 3])
+@pytest.mark.parametrize("seed", ["voxel", "cube"])
+def test_grow_border_grows_by_border_mm_inclusive(header, seed, border):
+    mask = np.zeros((256, 256, 256), np.uint8)
+    if seed == "voxel":
+        mask[128, 128, 128] = 1
+    else:
+        mask[100:104, 120:124, 90:94] = 1
+    full_input = truncate_header_bytes(header) + mask.tobytes()
+    out_header, data = header_data_split(grow_border(full_input, border))
+    grown = np.frombuffer(data, np.uint8).reshape(mask.shape)
+    assert out_header == truncate_header_bytes(header)
+    assert set(np.unique(grown)) == {0, 1}
+    np.testing.assert_array_equal(grown.astype(bool), _within(mask, border))
