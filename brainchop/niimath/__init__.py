@@ -136,11 +136,10 @@ def header_data_split(nifti_bytes: bytes) -> Tuple[bytes, bytes]:
 
 
 def read_header_bytes(path, size=352):
-    if path.endswith((".nii.gz", ".gz")):
-        opener = gzip.open
-    else:
-        opener = open
-    with opener(path, "rb") as f:
+    # Recognize gzip by its magic bytes, as niimath does, not by the file name
+    with open(path, "rb") as f:
+        gzipped = f.read(2) == b"\x1f\x8b"
+    with (gzip.open if gzipped else open)(path, "rb") as f:
         return f.read(size)
 
 

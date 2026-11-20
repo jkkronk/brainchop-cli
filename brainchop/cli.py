@@ -3,7 +3,9 @@ brainchop CLI - Command-line interface for brain segmentation.
 """
 
 import argparse
+import math
 import os
+import struct
 import subprocess
 import sys
 from pathlib import Path
@@ -16,6 +18,8 @@ from brainchop.niimath import (
     grow_border,
     truncate_header_bytes,
     set_header_intent_label,
+    header2endian,
+    read_header_bytes,
     _run_niimath,
 )
 
@@ -231,10 +235,26 @@ def _save_mindgrab(result: Volume, source_path: str, args, output_path: str,
         )
 
     gz = "0" if output_path.endswith(".nii") else "1"
+    odt = _brain_odt(source_path)
     subprocess.run(
-        ["niimath", source_path, "-reslice_mask", "-", "-gz", gz, output_path, "-odt", "input_force"],
+        ["niimath", source_path, "-reslice_mask", "-", "-gz", gz, output_path, "-odt", odt],
         input=data, check=True
     )
+
+
+def _brain_odt(source_path: str) -> str:
+    """-odt for the skull-stripped image: the source's datatype when that keeps its values."""
+    header = read_header_bytes(source_path)
+    try:
+        endian = header2endian(header)
+    except ValueError:  # not NIfTI-1 (e.g. NIfTI-2)
+        return "float"
+    datatype = struct.unpack(f"{endian}h", header[70:72])[0]
+    slope, inter = struct.unpack(f"{endian}ff", header[112:120])
+    # input_force would store scaled intensities rounded, with slope 1, and niimath can only
+    # write uint8, int16, int32, float32, float64 and uint16; float keeps the real values
+    unscaled = (slope in (0, 1) or not math.isfinite(slope)) and inter == 0
+    return "input_force" if unscaled and datatype in (2, 4, 8, 16, 64, 512) else "float"
 
 
 def _save_inverse_conform(result: Volume, source_path: str, output_path: str):

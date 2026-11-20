@@ -4,6 +4,7 @@ Each CLI run still conforms, labels and saves real 256^3 volumes, so it costs a 
 seconds per input; keep the number of inputs per test small.
 """
 
+import functools
 import gzip
 import shutil
 import struct
@@ -16,6 +17,7 @@ import numpy as np
 import pytest
 
 from brainchop import cli
+from brainchop.api import Volume, load
 
 GZIP_MAGIC = b"\x1f\x8b"
 NIFTI_DTYPES = {2: np.uint8, 4: np.int16, 8: np.int32, 16: np.float32, 64: np.float64,
@@ -36,6 +38,23 @@ def read_nifti(path):
                          offset=int(vox_offset))
     return SimpleNamespace(header=raw[:352], shape=shape, datatype=datatype,
                            slope=slope, inter=inter, data=data)
+
+
+def write_nifti(path, header, data, slope=1.0, inter=0.0):
+    """An uncompressed NIfTI-1 with header's geometry, storing data in its own datatype."""
+    h = bytearray(header[:352])
+    code = next(c for c, t in NIFTI_DTYPES.items() if np.dtype(t) == data.dtype)
+    struct.pack_into("<hh", h, 70, code, data.dtype.itemsize * 8)
+    struct.pack_into("<3f", h, 108, 352.0, slope, inter)
+    h[348:352] = bytes(4)
+    Path(path).write_bytes(bytes(h) + data.tobytes())
+
+
+def real_values(image):
+    """Voxel values with the header's scaling applied (none when scl_slope is 0)."""
+    if image.slope == 0:
+        return image.data.astype(np.float64)
+    return image.data * np.float64(image.slope) + image.inter
 
 
 def copies(src, directory, *names):
@@ -180,3 +199,69 @@ def test_several_inputs_get_one_mask_each_on_their_own_grid(
         assert read_nifti(workdir / mask).shape == read_nifti(source).shape
     notices = [line for line in capsys.readouterr().err.splitlines() if "--mask" in line]
     assert len(notices) == 1
+
+
+@functools.cache
+def mindgrab_stand_in(path):
+    """The sample conformed and thresholded, standing in for mindgrab's result.
+
+    Cached, since conforming takes about a second.
+    """
+    vol = load(path)
+    return Volume((vol.data > 60).cast("uint8"), vol.header)
+
+
+@pytest.fixture
+def skull_strip(tmp_path, home, brain_path):
+    """A function that runs _save_mindgrab on a small (64^3) source made from the sample.
+
+    The source stores the sample's values times `scale` as `dtype`, with scl_slope `slope`.
+    The function returns the source and the skull-stripped image as read back, and the
+    mask on the source grid.
+    """
+    result = mindgrab_stand_in(brain_path)
+    template = tmp_path / "template.nii"
+    subprocess.run(["niimath", brain_path, "-subsamp2", "-subsamp2", "-gz", "0", template],
+                   check=True, capture_output=True)
+    template = read_nifti(template)
+    source, brain, mask = (str(tmp_path / name) for name in ("source.nii", "brain.nii", "mask.nii"))
+
+    def run(dtype, scale=1.0, slope=1.0):
+        write_nifti(source, template.header, np.round(template.data * scale).astype(dtype), slope)
+        cli._save_mindgrab(result, source, SimpleNamespace(border=0), brain, mask)
+        return read_nifti(source), read_nifti(brain), read_nifti(mask).data > 0
+
+    return run
+
+
+@pytest.mark.parametrize("dtype, scale, slope", [(np.int16, 128, 1 / 32767),
+                                                 (np.uint16, 16, 0.001)], ids=["int16", "uint16"])
+def test_skull_strip_keeps_the_real_values_of_a_scaled_source(skull_strip, dtype, scale, slope):
+    source, brain, inside = skull_strip(dtype, scale, slope)
+    assert inside.sum() > 10000
+    np.testing.assert_allclose(real_values(brain)[inside], real_values(source)[inside], rtol=1e-6)
+    assert not brain.data[~inside].any()
+    assert brain.datatype == 16
+
+
+@pytest.mark.parametrize("dtype", [np.int8, np.uint32])
+def test_skull_strip_of_a_datatype_niimath_cannot_write_is_saved_as_float(skull_strip, dtype):
+    source, brain, inside = skull_strip(dtype, scale=0.5)
+    assert brain.datatype == 16 and inside.sum() > 10000
+    np.testing.assert_array_equal(brain.data[inside], source.data[inside])
+
+
+def test_skull_strip_of_an_unscaled_source_keeps_its_datatype(skull_strip):
+    source, brain, inside = skull_strip(np.uint8)
+    assert brain.datatype == 2 and inside.sum() > 10000
+    np.testing.assert_array_equal(brain.data[inside], source.data[inside])
+    assert not brain.data[~inside].any()
+
+
+@pytest.mark.parametrize("name, compress", [("plain.nii.gz", False), ("UPPER.NII.GZ", True)])
+def test_skull_strip_reads_the_source_header_by_content(tmp_path, brain_path, name, compress):
+    # niimath reads both; going by the name crashed (plain) or picked float (upper case)
+    raw = gzip.decompress(Path(brain_path).read_bytes())
+    path = tmp_path / name
+    path.write_bytes(gzip.compress(raw, compresslevel=1) if compress else raw)
+    assert cli._brain_odt(str(path)) == "input_force"
