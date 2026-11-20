@@ -7,6 +7,7 @@ seconds per input; keep the number of inputs per test small.
 import gzip
 import shutil
 import struct
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -19,6 +20,7 @@ from brainchop import cli
 GZIP_MAGIC = b"\x1f\x8b"
 NIFTI_DTYPES = {2: np.uint8, 4: np.int16, 8: np.int32, 16: np.float32, 64: np.float64,
                 256: np.int8, 512: np.uint16, 768: np.uint32, 1024: np.int64, 1280: np.uint64}
+ONE_VOLUME = (1, 1, 256, 256, 256)
 
 
 def read_nifti(path):
@@ -63,6 +65,15 @@ def workdir(tmp_path, monkeypatch, stub_model):
     return work
 
 
+@pytest.fixture
+def half_brain(tmp_path, brain_path):
+    """The sample head on a 2 mm grid (128^3): another grid, and another shape under --crop."""
+    path = tmp_path / "in" / "half.nii.gz"
+    path.parent.mkdir(exist_ok=True)
+    subprocess.run(["niimath", brain_path, "-subsamp2", path], check=True, capture_output=True)
+    return path
+
+
 @pytest.mark.parametrize("output, gzipped", [("output.nii.gz", True), ("custom.nii", False)])
 def test_output_flag_names_the_single_output(workdir, brain_path, monkeypatch, output, gzipped):
     run_cli(monkeypatch, brain_path, "-o", output)
@@ -84,3 +95,64 @@ def test_output_flag_with_several_inputs_keeps_auto_names_and_says_so(
     assert listing(workdir) == ["a_tissue_fast_1.nii.gz", "b_tissue_fast_2.nii.gz"]
     notices = [line for line in capsys.readouterr().err.splitlines() if "x.nii.gz" in line]
     assert len(notices) == 1
+
+
+@pytest.fixture
+def mirrored_brain(tmp_path, brain_path):
+    """The sample mirrored left-right: same grid, different labels."""
+    image = read_nifti(brain_path)
+    path = tmp_path / "in" / "b.nii"
+    path.parent.mkdir(exist_ok=True)
+    mirrored = image.data.reshape(image.shape[::-1])[:, :, ::-1]
+    path.write_bytes(image.header + mirrored.tobytes())  # the header has vox_offset 352
+    return path
+
+
+def test_batch_size_segments_each_group_in_one_model_call(
+    workdir, tmp_path, brain_path, mirrored_brain, stub_model, monkeypatch
+):
+    # Different scans share the first batch, so results written to the wrong input show
+    a, c = copies(brain_path, tmp_path / "in", "a", "c")
+    inputs = [a, mirrored_brain, c]
+    names = ["a_tissue_fast_1.nii.gz", "b_tissue_fast_2.nii.gz", "c_tissue_fast_3.nii.gz"]
+    run_cli(monkeypatch, *inputs)
+    assert [call["shape"] for call in stub_model.calls] == [ONE_VOLUME] * 3
+    assert not np.array_equal(read_nifti(workdir / names[0]).data,
+                              read_nifti(workdir / names[1]).data)
+
+    batched = tmp_path / "batched"
+    batched.mkdir()
+    monkeypatch.chdir(batched)
+    stub_model.calls.clear()
+    run_cli(monkeypatch, *inputs, "--batch-size", "2")
+    assert [call["shape"] for call in stub_model.calls] == [(2, 1, 256, 256, 256), ONE_VOLUME]
+    assert listing(batched) == listing(workdir) == names
+    for name in names:
+        expected = read_nifti(workdir / name).data
+        assert expected.any()
+        np.testing.assert_array_equal(read_nifti(batched / name).data, expected)
+
+
+def test_batch_size_one_segments_each_input_alone(workdir, tmp_path, brain_path, stub_model,
+                                                  monkeypatch):
+    inputs = copies(brain_path, tmp_path / "in", "a", "b", "c")
+    run_cli(monkeypatch, *inputs, "--batch-size", "1")
+    assert [call["shape"] for call in stub_model.calls] == [ONE_VOLUME] * 3
+    assert listing(workdir) == ["a_tissue_fast_1.nii.gz", "b_tissue_fast_2.nii.gz",
+                                "c_tissue_fast_3.nii.gz"]
+
+
+def test_non_positive_batch_size_counts_as_one(workdir, brain_path, stub_model, monkeypatch):
+    run_cli(monkeypatch, brain_path, "--batch-size", "0")
+    assert [call["shape"] for call in stub_model.calls] == [ONE_VOLUME]
+    assert listing(workdir) == ["brain_tissue_fast_1.nii.gz"]
+
+
+def test_batch_of_differently_cropped_volumes_is_segmented_one_at_a_time(
+    workdir, brain_path, half_brain, stub_model, monkeypatch
+):
+    run_cli(monkeypatch, brain_path, half_brain, "--crop", "--batch-size", "2")
+    shapes = [call["shape"] for call in stub_model.calls]
+    assert len(shapes) == 2 and shapes[0][0] == shapes[1][0] == 1
+    assert shapes[0] != shapes[1]  # otherwise this would not exercise the fallback
+    assert listing(workdir) == ["brain_tissue_fast_1.nii.gz", "half_tissue_fast_2.nii.gz"]

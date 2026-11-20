@@ -150,45 +150,55 @@ def main():
         print(f"brainchop :: -o {args.output} is ignored with several inputs; "
               "outputs are named <input>_<model>_<n>.nii.gz", file=sys.stderr)
 
-    # Process each input
-    for i, input_path in enumerate(args.input):
-        abs_path = os.path.abspath(input_path)
-        print(f"brainchop :: [{i+1}/{len(args.input)}] {input_path}")
+    # Process the inputs in consecutive groups of --batch-size
+    batch_size = max(args.batch_size, 1)
+    for start in range(0, len(args.input), batch_size):
+        paths = args.input[start:start + batch_size]
+        for i, input_path in enumerate(paths, start):
+            print(f"brainchop :: [{i+1}/{len(args.input)}] {input_path}")
 
         # Load
-        vol = load(abs_path, crop=args.crop, ct=args.ct, comply=args.comply)
+        vols = load([os.path.abspath(p) for p in paths],
+                    crop=args.crop, ct=args.ct, comply=args.comply)
 
-        # Segment (single volume, so result is always Volume)
-        result, raw_output = segment(vol, model_name, beam=beam, return_raw=True)
-        assert isinstance(result, Volume)
+        # Segment the group as one batch; volumes of different shapes (--crop) cannot be
+        # stacked, so such a group is segmented one volume at a time
+        shard_size = batch_size if len({v.data.shape for v in vols}) == 1 else 1
+        results, raw_outputs = segment(vols, model_name, shard_size=shard_size, beam=beam,
+                                       return_raw=True)
 
-        # Output path
-        if len(args.input) == 1 and args.output is not None:
-            output_path = args.output
-        else:
-            base = Path(input_path).stem.replace(".nii", "")
-            # Use model name for output, hash if it's a path
-            if model_name.startswith("file://") or Path(model_name).is_dir():
-                import hashlib
-                model_label = hashlib.sha1(model_name.encode()).hexdigest()[:8]
+        for i, (input_path, vol, result, raw_output) in enumerate(
+            zip(paths, vols, results, raw_outputs), start
+        ):
+            abs_path = os.path.abspath(input_path)
+
+            # Output path
+            if len(args.input) == 1 and args.output is not None:
+                output_path = args.output
             else:
-                model_label = model_name
-            output_path = f"{base}_{model_label}_{i+1}.nii.gz"
+                base = Path(input_path).stem.replace(".nii", "")
+                # Use model name for output, hash if it's a path
+                if model_name.startswith("file://") or Path(model_name).is_dir():
+                    import hashlib
+                    model_label = hashlib.sha1(model_name.encode()).hexdigest()[:8]
+                else:
+                    model_label = model_name
+                output_path = f"{base}_{model_label}_{i+1}.nii.gz"
 
-        # Export class probability maps if requested
-        if args.export_classes and raw_output is not None:
-            export_classes(raw_output, vol.header, output_path)
-            print(f"brainchop :: Exported class probability maps")
+            # Export class probability maps if requested
+            if args.export_classes and raw_output is not None:
+                export_classes(raw_output, vol.header, output_path)
+                print(f"brainchop :: Exported class probability maps")
 
-        # Save
-        if model_name == "mindgrab":
-            _save_mindgrab(result, abs_path, args, output_path)
-        elif args.inverse_conform:
-            _save_inverse_conform(result, abs_path, output_path)
-        else:
-            save(result, output_path)
+            # Save
+            if model_name == "mindgrab":
+                _save_mindgrab(result, abs_path, args, output_path)
+            elif args.inverse_conform:
+                _save_inverse_conform(result, abs_path, output_path)
+            else:
+                save(result, output_path)
 
-        print(f"brainchop :: Saved {output_path}")
+            print(f"brainchop :: Saved {output_path}")
 
     print("brainchop :: Done!")
 
