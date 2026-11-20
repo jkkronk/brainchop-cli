@@ -212,8 +212,9 @@ def _save_mindgrab(result: Volume, source_path: str, args, output_path: str):
         data = grow_border(data, args.border)
 
     if args.mask:
+        gz = "0" if args.mask.endswith(".nii") else "1"
         subprocess.run(
-            ["niimath", "-", "-reslice_nn", source_path, "-gz", "1", args.mask, "-odt", "char"],
+            ["niimath", "-", "-reslice_nn", source_path, "-gz", gz, args.mask, "-odt", "char"],
             input=data, check=True
         )
 

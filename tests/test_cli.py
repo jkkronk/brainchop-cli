@@ -156,3 +156,14 @@ def test_batch_of_differently_cropped_volumes_is_segmented_one_at_a_time(
     assert len(shapes) == 2 and shapes[0][0] == shapes[1][0] == 1
     assert shapes[0] != shapes[1]  # otherwise this would not exercise the fallback
     assert listing(workdir) == ["brain_tissue_fast_1.nii.gz", "half_tissue_fast_2.nii.gz"]
+
+
+@pytest.mark.parametrize("args, outputs", [
+    (["-o", "brain.nii", "--mask", "m.nii"], ["brain.nii", "m.nii"]),
+    (["--mask", "custom.nii.gz"], ["brain_mindgrab_1.nii.gz", "custom.nii.gz"]),
+], ids=["nii", "nii.gz"])
+def test_single_input_mask_is_written_as_named(workdir, brain_path, monkeypatch, args, outputs):
+    run_cli(monkeypatch, brain_path, "--skull-strip", *args)
+    assert listing(workdir) == outputs
+    for name in outputs:
+        assert ((workdir / name).read_bytes()[:2] == GZIP_MAGIC) == name.endswith(".gz"), name
