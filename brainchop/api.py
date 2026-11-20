@@ -164,7 +164,8 @@ def load(
 
     Args:
         path: Path or list of paths to NIfTI file(s) (.nii or .nii.gz)
-        crop: Crop intensity percentile (e.g., 0.01 removes bottom 1%)
+        crop: Crop to the bounding box of voxels above this intensity percentile,
+              given in percent (0-100, e.g. 2.0 for the 2nd percentile)
         ct: Use CT windowing instead of MRI normalization
         comply: Insert niimath compliance arguments before conform
 
@@ -181,7 +182,7 @@ def load(
         >>> len(vols)
         2
 
-        >>> vol = load("brain.nii.gz", crop=0.01)  # crop dark voxels
+        >>> vol = load("brain.nii.gz", crop=2.0)  # crop to voxels above the 2nd percentile
         ```
     """
     if isinstance(path, list):
