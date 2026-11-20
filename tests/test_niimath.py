@@ -1,8 +1,10 @@
 """brainchop.niimath against the niimath binary, on synthetic volumes (no model needed)."""
 
+import gzip
 import json
 import os
 import shutil
+import struct
 import subprocess
 import sys
 from pathlib import Path
@@ -140,3 +142,16 @@ def test_niimath_path_without_niimath_is_ignored(tmp_path):
     on_path = _fake_niimath(tmp_path / "on_path")
     _, before, after = _niimath_in_child(os.path.dirname(on_path), str(tmp_path / "missing"))
     assert before == after == on_path
+
+
+def test_comply_rescales_wide_range_input(brain_path, tmp_path):
+    src_header, data = header_data_split(gzip.decompress(brain_path.read_bytes()))
+    int16_header = bytearray(src_header)
+    struct.pack_into("<hh", int16_header, 70, 4, 16)  # datatype int16, bitpix 16
+    voxels = np.frombuffer(data, np.uint8).astype(np.int16) * 8
+    x8 = tmp_path / "brain_x8_int16.nii"
+    x8.write_bytes(bytes(int16_header) + voxels.tobytes())
+    vol, _ = conform(str(x8), comply=True)
+    assert (vol[vol > 0] == 255).mean() < 0.1
+    assert np.unique(vol).size > 100
+    np.testing.assert_array_equal(vol, conform(str(brain_path), comply=True)[0])

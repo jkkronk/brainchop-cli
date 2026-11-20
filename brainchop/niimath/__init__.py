@@ -326,7 +326,9 @@ def conform(input_image_path, comply=False, ct=False):
     if not inp.exists():
         raise FileNotFoundError(f"Input NIfTI file not found: {inp}")
 
-    comply_args = ["-comply", "256", "256", "256", "1", "1", "1", "1", "1"]
+    # f_high 0.98 rescales so that the brightest 2% clamp at 255; 1 does not rescale and
+    # clips everything above 255, saturating inputs with a wider range
+    comply_args = ["-comply", "256", "256", "256", "1", "1", "1", "0.98", "1"]
 
     def _conform_args(read_from):
         cmd = ["niimath", read_from]
