@@ -189,7 +189,7 @@ def load(
     return _load_single(path, crop=crop, ct=ct, comply=comply)
 
 
-def save(volume: Volume, path: str) -> None:
+def save(volume: Volume, path: str | Path) -> None:
     """
     Save volume to NIfTI file.
 
@@ -204,6 +204,7 @@ def save(volume: Volume, path: str) -> None:
         >>> save(result, "segmented.nii.gz")
         ```
     """
+    path = os.fspath(path)
     # Segmentation output is a categorical label map: tag the NIfTI header with
     # NIFTI_INTENT_LABEL (1002) so downstream viewers treat it as labels.
     header = set_header_intent_label(truncate_header_bytes(volume.header))
