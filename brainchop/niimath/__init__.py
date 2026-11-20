@@ -498,6 +498,9 @@ def truncate_header_bytes(header: bytes):
 
 def bwlabel(header: bytes, vol_data: np.ndarray, neighbors=26):
     header = truncate_header_bytes(header)
+    # niimath -bwlabel exits 1 on a volume without foreground; there is nothing to remove
+    if not vol_data.any():
+        return vol_data, header
     # fire niimath, pipe in header+data, capture its stdout
     res = subprocess.run(
         ["niimath", "-", "-bwlabel", str(neighbors), "-gz", "0", "-", "-odt", "char"],
