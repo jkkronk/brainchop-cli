@@ -29,13 +29,16 @@ def _run_niimath(cmd, *, input: bytes | None = None) -> subprocess.CompletedProc
         raise RuntimeError(msg) from e
 
 
+# pick the binary name for this platform
+_EXE_NAME = "niimath.exe" if sys.platform.startswith("win") else "niimath"
+
+
 def _get_executable():
     """
     Locate the niimath binary, either via NIIMATH_PATH or on your PATH.
     Raises FileNotFoundError if not found, RuntimeError on unknown platform.
     """
-    # pick the binary name for this platform
-    exe_name = "niimath.exe" if sys.platform.startswith("win") else "niimath"
+    exe_name = _EXE_NAME
 
     # 1) if NIIMATH_PATH is set, look there first
     niimath_dir = os.getenv("NIIMATH_PATH")
@@ -57,6 +60,26 @@ def _get_executable():
         f"Could not find `{exe_name}` on your PATH. "
         "Install niimath or set NIIMATH_PATH to its folder."
     )
+
+
+def _add_niimath_to_path():
+    """Let brainchop's bare "niimath" commands resolve without an activated environment.
+
+    pip installs the niimath launcher next to the interpreter, which is not on PATH under
+    pipx / uv tool, cron or an IDE kernel. An NIIMATH_PATH holding the executable goes first;
+    one that does not (the Dockerfile's /opt/niimath) is ignored.
+    """
+    path = os.environ.get("PATH", os.defpath)
+    niimath_dir = os.getenv("NIIMATH_PATH")
+    if niimath_dir and shutil.which(_EXE_NAME, path=niimath_dir):
+        os.environ["PATH"] = niimath_dir + os.pathsep + path
+    elif not shutil.which(_EXE_NAME):
+        python_dir = os.path.dirname(sys.executable or "")
+        if shutil.which(_EXE_NAME, path=python_dir):
+            os.environ["PATH"] = path + os.pathsep + python_dir
+
+
+_add_niimath_to_path()
 
 
 def _get_temp_dir():

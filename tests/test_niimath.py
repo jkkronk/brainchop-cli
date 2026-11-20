@@ -1,11 +1,16 @@
 """brainchop.niimath against the niimath binary, on synthetic volumes (no model needed)."""
 
+import json
+import os
+import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import numpy as np
 import pytest
 
+import brainchop.niimath
 from brainchop.niimath import (
     bwlabel,
     conform,
@@ -76,3 +81,62 @@ def test_grow_border_grows_by_border_mm_inclusive(header, seed, border):
     assert out_header == truncate_header_bytes(header)
     assert set(np.unique(grown)) == {0, 1}
     np.testing.assert_array_equal(grown.astype(bool), _within(mask, border))
+
+
+CHILD = (
+    "import json, shutil, sys\n"
+    "before = shutil.which('niimath')\n"
+    "import brainchop.niimath\n"
+    "after = shutil.which('niimath')\n"
+    "print(json.dumps([sys.executable, brainchop.niimath.__file__, before, after]))\n"
+)
+
+
+def _niimath_in_child(path, niimath_path=None):
+    """Where a fresh interpreter finds niimath before and after importing brainchop.niimath."""
+    env = dict(os.environ, PATH=path)
+    env.pop("NIIMATH_PATH", None)
+    if niimath_path is not None:
+        env["NIIMATH_PATH"] = niimath_path
+    res = subprocess.run([sys.executable, "-c", CHILD], env=env, capture_output=True, text=True)
+    assert res.returncode == 0, res.stderr
+    exe, module, before, after = json.loads(res.stdout)
+    assert Path(module).resolve() == Path(brainchop.niimath.__file__).resolve()  # code under test
+    return exe, before, after
+
+
+def _fake_niimath(directory):
+    directory.mkdir()
+    exe = directory / "niimath"
+    exe.write_text("#!/bin/sh\n")
+    exe.chmod(0o755)
+    return str(exe)
+
+
+@pytest.mark.usefixtures("home")
+@pytest.mark.parametrize("bogus_niimath_path", [False, True])
+def test_import_finds_niimath_next_to_the_interpreter(tmp_path, bogus_niimath_path):
+    # pipx / uv tool / cron: the interpreter's directory, where pip put niimath, is not on PATH
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    exe, before, after = _niimath_in_child(str(empty), str(empty) if bogus_niimath_path else None)
+    python_dir = os.path.dirname(exe)
+    if not shutil.which("niimath", path=python_dir):
+        pytest.skip(f"no niimath launcher next to {exe}")
+    assert before is None
+    assert after == os.path.join(python_dir, "niimath")
+
+
+@pytest.mark.usefixtures("home")
+def test_niimath_path_goes_first_on_path(tmp_path):
+    on_path = _fake_niimath(tmp_path / "on_path")
+    override = _fake_niimath(tmp_path / "override")
+    _, before, after = _niimath_in_child(os.path.dirname(on_path), os.path.dirname(override))
+    assert (before, after) == (on_path, override)
+
+
+@pytest.mark.usefixtures("home")
+def test_niimath_path_without_niimath_is_ignored(tmp_path):
+    on_path = _fake_niimath(tmp_path / "on_path")
+    _, before, after = _niimath_in_child(os.path.dirname(on_path), str(tmp_path / "missing"))
+    assert before == after == on_path
