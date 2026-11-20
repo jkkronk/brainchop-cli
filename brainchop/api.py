@@ -430,22 +430,22 @@ def _run_with_fuse_chunk(m, batched, model_name: str, tta: bool = False):
         return m(batched)
 
     n_classes = m.n_classes
-    env_val = os.environ.get("FUSE_CHUNK")
-    chunk = int(env_val) if env_val is not None else \
+    env_val = int(os.environ.get("FUSE_CHUNK") or 0)  # unset, empty or <= 0 means auto
+    chunk = env_val if env_val > 0 else \
             _load_optimization_cache(model_name).get("fuse_chunk") or n_classes
 
     while chunk >= 1:
         try:
             result = m(batched, fuse_chunk=chunk)
-            if chunk < n_classes and env_val is None:
+            if chunk < n_classes and env_val <= 0:
                 print(f"brainchop :: FUSE_CHUNK={chunk} (auto-detected for '{model_name}', set FUSE_CHUNK to override)")
                 _save_fuse_chunk(model_name, chunk)
             return result
         except MemoryError:
             if chunk == 1:
                 raise
-            chunk = max(1, chunk // 2)
-            print(f"brainchop :: OOM at FUSE_CHUNK={chunk * 2}, retrying with FUSE_CHUNK={chunk}...")
+            failed, chunk = chunk, max(1, chunk // 2)
+            print(f"brainchop :: OOM at FUSE_CHUNK={failed}, retrying with FUSE_CHUNK={chunk}...")
 
 
 def segment(
