@@ -88,7 +88,8 @@ Examples:
     parser.add_argument("--beam", type=int, default=None, metavar="N",
                         help="BEAM optimization level (default: use cached or 0)")
     parser.add_argument("--no-optimize", action="store_true",
-                        help="Skip first-run optimization prompt")
+                        help="Skip the first-run optimization prompt and any cached "
+                             "BEAM level")
 
     return parser
 
@@ -144,7 +145,7 @@ def main():
     batch_size = max(args.batch_size, 1)
     cache_name = _model_cache_name(model_name)
     beam = args.beam if args.beam is not None else 0
-    if beam == 0 and not args.no_optimize:
+    if args.beam is None and not args.no_optimize:
         # Check if first run, prompt for optimization
         if _is_first_run(cache_name, batch_size):
             _prompt_for_optimization(model_name, batch_size)
@@ -152,6 +153,8 @@ def main():
         cached = _get_best_beam(cache_name, batch_size)
         if cached:
             beam = cached
+            print(f"brainchop :: Using BEAM={beam} from an earlier optimization of "
+                  f"'{model_name}' (--beam 0 or --no-optimize runs without it)")
 
     if args.output is not None and len(args.input) > 1:
         print(f"brainchop :: -o {args.output} is ignored with several inputs; "

@@ -484,7 +484,7 @@ def segment(
     model: str,
     *,
     shard_size: int = 1,
-    beam: int = 0,
+    beam: int | None = None,
     return_raw: bool = False,
     tta: bool = False,
 ):  # type: ignore[return]
@@ -495,7 +495,8 @@ def segment(
         volume: Single Volume or list of Volumes
         model: Model name (e.g., "subcortical", "tissue_fast") or path to model dir
         shard_size: Batch size for processing multiple volumes
-        beam: BEAM optimization level (0 = use cached or none)
+        beam: BEAM optimization level; None uses the level cached by optimize(), if any,
+              and 0 runs without BEAM
         return_raw: If True, also return raw model output (pre-argmax) for export_classes
         tta: If True, use test-time augmentation (flip ensemble)
 
@@ -530,7 +531,7 @@ def segment(
 
     # Determine BEAM value
     model_name = _model_cache_name(model)
-    if beam == 0:
+    if beam is None:
         # Use cached value if available
         cached_beam = _get_best_beam(model_name, shard_size)
         beam = cached_beam if cached_beam else 0

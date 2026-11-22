@@ -58,9 +58,24 @@ def test_segment_runs_model_at_requested_beam_and_restores_it(probe):
 
 def test_segment_without_beam_leaves_tinygrad_beam_alone(probe):
     with pytest.raises(Stop):
-        api.segment(volume(), "tissue_fast")  # beam=0 and nothing cached
+        api.segment(volume(), "tissue_fast")  # default beam and nothing cached
     assert probe.beams == [1]
     assert tinygrad.helpers.BEAM.value == 1
+
+
+def test_segment_uses_the_cached_beam_by_default(probe):
+    api._save_optimization_cache("tissue_fast", 1, 2)
+    with pytest.raises(Stop):
+        api.segment(volume(), "tissue_fast")
+    assert probe.beams == [2]
+    assert tinygrad.helpers.BEAM.value == 1
+
+
+def test_segment_with_beam_zero_ignores_the_cached_beam(probe):
+    api._save_optimization_cache("tissue_fast", 1, 2)
+    with pytest.raises(Stop):
+        api.segment(volume(), "tissue_fast", beam=0)
+    assert probe.beams == [1]
 
 
 def test_optimize_runs_model_at_requested_beam_and_restores_it(probe):

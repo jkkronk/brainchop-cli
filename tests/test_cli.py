@@ -16,6 +16,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 from tinygrad import Tensor
+from tinygrad.helpers import BEAM
 
 from brainchop import api, cli
 from brainchop.api import Volume, load
@@ -310,7 +311,6 @@ def no_beam_search(monkeypatch, stub_model):
 
     monkeypatch.setattr(cli, "optimize", optimize)
     monkeypatch.setattr(cli, "segment", segment)
-    monkeypatch.setattr(api, "_get_best_beam", lambda *a, **k: None)  # segment()'s own lookup
     return beams
 
 
@@ -341,3 +341,46 @@ def test_directory_named_like_the_model_does_not_rename_the_output(
     (workdir / "tissue_fast").mkdir()
     run_cli(monkeypatch, brain_path)
     assert listing(workdir) == ["brain_tissue_fast_1.nii.gz", "tissue_fast"]
+
+
+class Stop(Exception):
+    pass
+
+
+@pytest.fixture
+def beam_probe(home, tmp_path, monkeypatch):
+    """Records tinygrad's BEAM level when the model is called, then stops the run.
+
+    Stopping before anything is computed means no kernel is compiled, so a BEAM level
+    above 0 cannot start a real kernel search. tissue_fast has a cached BEAM level of 2,
+    as after answering "y" to the first-run prompt.
+    """
+    api._save_optimization_cache("tissue_fast", 1, 2)
+    beams = []
+
+    class Model:
+        n_classes = 3
+
+        def __call__(self, *args, **kwargs):
+            beams.append(BEAM.value)
+            raise Stop
+
+    monkeypatch.setattr(api, "_load_model", lambda *a, **k: Model())
+    monkeypatch.chdir(tmp_path)
+    return beams
+
+
+@pytest.mark.parametrize("flags", [["--no-optimize"], ["--beam", "0"]])
+def test_beam_flags_turn_a_cached_beam_level_off(beam_probe, brain_path, monkeypatch, flags):
+    monkeypatch.setattr(sys, "argv", ["brainchop", str(brain_path), *flags])
+    with pytest.raises(Stop):
+        cli.main()
+    assert beam_probe == [BEAM.value]  # left as tinygrad had it
+
+
+def test_cached_beam_level_is_used_and_announced(beam_probe, brain_path, monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["brainchop", str(brain_path)])
+    with pytest.raises(Stop):
+        cli.main()
+    assert beam_probe == [2]
+    assert "Using BEAM=2" in capsys.readouterr().out
