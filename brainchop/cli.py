@@ -12,7 +12,7 @@ from pathlib import Path
 
 from brainchop.api import (
     Volume, load, save, segment, list_models, optimize, export_classes,
-    _is_first_run, _get_best_beam,
+    _is_first_run, _get_best_beam, _custom_model_dir, _model_cache_name,
 )
 from brainchop.niimath import (
     grow_border,
@@ -139,14 +139,17 @@ def main():
     else:
         model_name = args.model
 
-    # Handle BEAM optimization
+    # Handle BEAM optimization, cached under the same name and batch size as optimize()
+    # and segment() use
+    batch_size = max(args.batch_size, 1)
+    cache_name = _model_cache_name(model_name)
     beam = args.beam if args.beam is not None else 0
     if beam == 0 and not args.no_optimize:
         # Check if first run, prompt for optimization
-        if _is_first_run(model_name, args.batch_size):
-            _prompt_for_optimization(model_name, args.batch_size)
+        if _is_first_run(cache_name, batch_size):
+            _prompt_for_optimization(model_name, batch_size)
         # Use cached beam value
-        cached = _get_best_beam(model_name, args.batch_size)
+        cached = _get_best_beam(cache_name, batch_size)
         if cached:
             beam = cached
 
@@ -160,7 +163,6 @@ def main():
               f"masks are named <input>_<model>_<n>_mask{mask_ext}", file=sys.stderr)
 
     # Process the inputs in consecutive groups of --batch-size
-    batch_size = max(args.batch_size, 1)
     for start in range(0, len(args.input), batch_size):
         paths = args.input[start:start + batch_size]
         for i, input_path in enumerate(paths, start):
@@ -187,7 +189,7 @@ def main():
             else:
                 base = Path(input_path).stem.replace(".nii", "")
                 # Use model name for output, hash if it's a path
-                if model_name.startswith("file://") or Path(model_name).is_dir():
+                if _custom_model_dir(model_name) is not None:
                     import hashlib
                     model_label = hashlib.sha1(model_name.encode()).hexdigest()[:8]
                 else:

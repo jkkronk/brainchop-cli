@@ -15,8 +15,9 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from tinygrad import Tensor
 
-from brainchop import cli
+from brainchop import api, cli
 from brainchop.api import Volume, load
 
 GZIP_MAGIC = b"\x1f\x8b"
@@ -265,3 +266,78 @@ def test_skull_strip_reads_the_source_header_by_content(tmp_path, brain_path, na
     path = tmp_path / name
     path.write_bytes(gzip.compress(raw, compresslevel=1) if compress else raw)
     assert cli._brain_odt(str(path)) == "input_force"
+
+
+def run_cli_with_prompt(monkeypatch, *args):
+    """Like run_cli, but without --no-optimize, so the first-run prompt can appear."""
+    monkeypatch.setattr(sys, "argv", ["brainchop", *map(str, args)])
+    cli.main()
+
+
+@pytest.fixture
+def answer_yes(monkeypatch):
+    """Answer the first-run optimization prompt with "y"; returns the prompts shown."""
+    prompts = []
+
+    def fake_input(prompt=""):
+        prompts.append(prompt)
+        return "y"
+
+    monkeypatch.setattr("builtins.input", fake_input)
+    return prompts
+
+
+@pytest.fixture
+def no_beam_search(monkeypatch, stub_model):
+    """Run the real optimize() and segment() without starting a BEAM kernel search.
+
+    optimize() gets a model whose output is already computed, so its BEAM pass compiles
+    nothing, and segment() runs with beam 0. Returns the beam the CLI passed to segment().
+    """
+    computed = Tensor.zeros(1).contiguous().realize()
+    real_optimize, real_segment = api.optimize, api.segment
+
+    def optimize(model, **kwargs):
+        with monkeypatch.context() as patch:
+            patch.setattr(api, "_load_model", lambda *a, **k: lambda *a, **k: computed)
+            real_optimize(model, **kwargs)
+
+    beams = []
+
+    def segment(*args, beam=0, **kwargs):
+        beams.append(beam)
+        return real_segment(*args, beam=0, **kwargs)
+
+    monkeypatch.setattr(cli, "optimize", optimize)
+    monkeypatch.setattr(cli, "segment", segment)
+    monkeypatch.setattr(api, "_get_best_beam", lambda *a, **k: None)  # segment()'s own lookup
+    return beams
+
+
+def test_custom_model_is_offered_optimization_only_on_its_first_run(
+    workdir, brain_path, monkeypatch, answer_yes, no_beam_search
+):
+    # optimize() caches under the folder's name; the CLI used to look under file://<path>
+    (workdir / "mymodel").mkdir()
+    for _ in range(2):
+        run_cli_with_prompt(monkeypatch, brain_path, "--custom", "mymodel", "-o", "seg.nii.gz")
+    assert len(answer_yes) == 1
+    assert no_beam_search == [2, 2]
+
+
+def test_non_positive_batch_size_shares_the_batch_size_one_optimization(
+    workdir, brain_path, monkeypatch, answer_yes, no_beam_search
+):
+    run_cli_with_prompt(monkeypatch, brain_path, "-o", "a.nii.gz")
+    run_cli_with_prompt(monkeypatch, brain_path, "-o", "b.nii.gz", "--batch-size", "0")
+    assert len(answer_yes) == 1
+    assert no_beam_search == [2, 2]
+
+
+def test_directory_named_like_the_model_does_not_rename_the_output(
+    workdir, brain_path, monkeypatch
+):
+    # People name output folders after models; the output is still labelled by the name
+    (workdir / "tissue_fast").mkdir()
+    run_cli(monkeypatch, brain_path)
+    assert listing(workdir) == ["brain_tissue_fast_1.nii.gz", "tissue_fast"]
