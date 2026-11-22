@@ -27,10 +27,8 @@ BrainChop is a lightweight tool for brain segmentation that runs on pretty much 
 ## (NEW) No install single command use
 
 Using [uv](https://docs.astral.sh/uv/), brainchop can be ran without needing an enviroment
-```
+```bash
 uvx brainchop --help
-```
-
 ```
 
 ## Installation
