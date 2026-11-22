@@ -1,3 +1,23 @@
+> [!WARNING]
+> **This repository (`brainchop-cli`, tinygrad/Python runtime) is deprecated and is no longer the package served on PyPI for `brainchop >= 1.0.0`.**
+>
+> **Active development and PyPI releases (`brainchop >= 1.0.0`) have moved to [neuroneural/brainchop-core](https://github.com/neuroneural/brainchop-core):**
+> - **Zero ML dependencies** — native C/Metal/CUDA/HIP/CPU binaries with 4 embedded v4.0 Gold / v3.5 models (no tinygrad, PyTorch, CUDA Toolkit, or model downloads at runtime).
+> - **Drop-in `pip install brainchop` & `uvx brainchop`** (prebuilt wheels for macOS, Linux, Windows + backward-compatible stdlib `import brainchop` API), plus **Homebrew** (`brew install neuroneural/tap/brainchop`) and **npm** (`@brainchop/core`).
+> - **Need the legacy tinygrad runtime or retired models (`--custom`, `export`, older checkpoints)?** Pin the final legacy release:
+>   ```bash
+>   pip install brainchop==0.2.5
+>   ```
+>
+> | Legacy `0.2.5` model | Recommended `brainchop >= 1.0.0` (`brainchop-core`) model |
+> | --- | --- |
+> | `mindgrab` / `--skull-strip` | `mindgrab` / `--skull-strip` |
+> | `subcortical` | `mindmap` (24ch, 18-class v4.0 Gold) or `mindmap-fast` (16ch v3.5) |
+> | `tissue_fast` | `mindmap-fast` (18-class) or `mindmap --pve` (CAT-lite GM/WM/CSF) |
+> | `DKatlas` | `mindsnap` (24ch, 104-class v4.0 Gold) |
+
+---
+
 # BrainChop
 
 BrainChop is a lightweight tool for brain segmentation that runs on pretty much everything.
